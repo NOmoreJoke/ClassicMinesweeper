@@ -40,6 +40,7 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
             defer: false
         )
         window.title = BuildInfo.productName
+        window.appearance = NSAppearance(named: .aqua)
         window.isReleasedWhenClosed = false
         window.backgroundColor = ClassicPalette.panel
         window.contentView = gameView
@@ -114,6 +115,7 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
 
     @objc public func showCustomGame(_ sender: Any?) {
         guard let window else { return }
+        gameView.boardView.cancelPointerGesture()
         let columns = NSTextField(string: "16")
         let rows = NSTextField(string: "16")
         let mines = NSTextField(string: "40")
@@ -162,6 +164,7 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
 
     @objc public func resetRecords(_ sender: Any?) {
         guard let window else { return }
+        gameView.boardView.cancelPointerGesture()
         let alert = NSAlert()
         alert.messageText = "Reset Best Times?"
         alert.informativeText = "This removes all three local records."
@@ -176,6 +179,7 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
 
     @objc public func showPreferences(_ sender: Any?) {
         guard let window else { return }
+        gameView.boardView.cancelPointerGesture()
         let nameField = NSTextField(string: preferences.playerName)
         nameField.frame.size = NSSize(width: 200, height: 24)
         let alert = NSAlert()
@@ -233,6 +237,7 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
     }
 
     private func replaceGame(configuration: GameConfiguration) {
+        gameView.boardView.cancelPointerGesture()
         do {
             game = try Self.makeGame(
                 configuration: configuration,
@@ -322,10 +327,14 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
 
     private func showSheet(title: String, message: String) {
         guard let window else { return }
+        gameView.boardView.cancelPointerGesture()
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
         alert.beginSheetModal(for: window)
     }
+
+    var boardViewForTesting: ClassicBoardView { gameView.boardView }
+    var gameForTesting: MinesweeperGame { game }
 }

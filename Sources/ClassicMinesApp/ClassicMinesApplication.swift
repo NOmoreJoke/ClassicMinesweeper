@@ -8,6 +8,7 @@ final class ClassicMinesApplication: NSObject, NSApplicationDelegate {
 
     static func main() {
         let application = NSApplication.shared
+        application.appearance = NSAppearance(named: .aqua)
         let delegate = ClassicMinesApplication()
         application.delegate = delegate
         application.setActivationPolicy(.regular)

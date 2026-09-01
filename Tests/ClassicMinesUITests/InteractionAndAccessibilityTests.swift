@@ -58,6 +58,13 @@ private func makeBoard(game: MinesweeperGame? = nil) -> (ClassicBoardView, Inter
     return (board, spy)
 }
 
+@MainActor
+func accessibilityCells(in board: ClassicBoardView) -> [BoardAccessibilityCell] {
+    (board.accessibilityRows() as? [BoardAccessibilityRow])?.flatMap { row in
+        row.accessibilityChildren() as? [BoardAccessibilityCell] ?? []
+    } ?? []
+}
+
 @Test @MainActor func primaryGesturePreviewsCancelsRestoresAndRevealsOnce() {
     let (board, spy) = makeBoard()
     let origin = Coordinate(row: 2, column: 3)
@@ -198,9 +205,17 @@ private func makeBoard(game: MinesweeperGame? = nil) -> (ClassicBoardView, Inter
 
 @Test @MainActor func virtualAccessibilityGridHasStableCellsValuesAndActions() {
     let (board, spy) = makeBoard()
-    let firstChildren = board.accessibilityChildren() as? [NSAccessibilityElement]
-    #expect(firstChildren?.count == 81)
-    let first = firstChildren?.first
+    let rows = board.accessibilityRows() as? [BoardAccessibilityRow]
+    let columns = board.accessibilityColumns() as? [BoardAccessibilityColumn]
+    #expect(board.accessibilityRowCount() == 9)
+    #expect(board.accessibilityColumnCount() == 9)
+    #expect(rows?.count == 9)
+    #expect(columns?.count == 9)
+    #expect((board.accessibilityChildren() as? [BoardAccessibilityRow])?.count == 9)
+    let firstChildren = accessibilityCells(in: board)
+    #expect(firstChildren.count == 81)
+    let first = firstChildren.first
+    #expect(first?.accessibilityParent() as AnyObject? === rows?.first)
     #expect(first?.accessibilityIdentifier() == "cell-0-0")
     #expect(first?.accessibilityLabel() == "Row 1, column 1")
     #expect(first?.accessibilityValue() as? String == "Covered")
@@ -210,10 +225,10 @@ private func makeBoard(game: MinesweeperGame? = nil) -> (ClassicBoardView, Inter
     #expect(spy.reveals == [Coordinate(row: 0, column: 0)])
 
     board.apply(game: board.game, changedCoordinates: [])
-    let secondChildren = board.accessibilityChildren() as? [NSAccessibilityElement]
-    #expect(first === secondChildren?.first)
+    let secondChildren = accessibilityCells(in: board)
+    #expect(first === secondChildren.first)
 
-    let last = secondChildren?.last
+    let last = secondChildren.last
     last?.setAccessibilityFocused(true)
     #expect(board.focusedCoordinate == Coordinate(row: 8, column: 8))
 }
@@ -223,7 +238,7 @@ private func makeBoard(game: MinesweeperGame? = nil) -> (ClassicBoardView, Inter
     let coordinate = Coordinate(row: 0, column: 0)
     _ = game.toggleMark(at: coordinate)
     let (board, spy) = makeBoard(game: game)
-    let cell = try #require((board.accessibilityChildren() as? [BoardAccessibilityCell])?.first)
+    let cell = try #require(accessibilityCells(in: board).first)
     let box = SendableAccessibilityCellBox(cell)
 
     #expect(cell.accessibilityCustomActions()?.map(\.name) == ["Toggle mark"])
@@ -242,16 +257,46 @@ private func makeBoard(game: MinesweeperGame? = nil) -> (ClassicBoardView, Inter
     let firstGame = MinesweeperGame(configuration: firstConfiguration, seed: 1)
     let board = ClassicBoardView(game: firstGame, scale: 1)
     board.focusedCoordinate = Coordinate(row: 15, column: 8)
-    let oldLast = (board.accessibilityChildren() as? [NSAccessibilityElement])?.last
+    let oldLast = accessibilityCells(in: board).last
 
     let secondGame = MinesweeperGame(configuration: secondConfiguration, seed: 2)
     board.apply(game: secondGame, changedCoordinates: [])
-    let children = board.accessibilityChildren() as? [NSAccessibilityElement]
+    let children = accessibilityCells(in: board)
 
-    #expect(children?.count == 144)
-    #expect(children?.last?.accessibilityIdentifier() == "cell-11-11")
+    #expect(board.accessibilityRowCount() == 12)
+    #expect(board.accessibilityColumnCount() == 12)
+    #expect(children.count == 144)
+    #expect(children.last?.accessibilityIdentifier() == "cell-11-11")
     #expect(board.focusedCoordinate == Coordinate(row: 0, column: 0))
     _ = oldLast?.accessibilityPerformPress()
+}
+
+@Test @MainActor func newGameAndSheetsCancelInFlightPointerState() throws {
+    let controller = try ClassicGameWindowController.make()
+    let board = controller.boardViewForTesting
+    let coordinate = Coordinate(row: 0, column: 0)
+
+    board.handlePress(.primary, at: coordinate)
+    #expect(board.previewedCoordinates == [coordinate])
+    controller.newGame(nil)
+    #expect(board.previewedCoordinates.isEmpty)
+    board.handleRelease(.primary, at: coordinate)
+    #expect(controller.gameForTesting.status == .ready)
+
+    board.handlePress(.primary, at: coordinate)
+    controller.showRules(nil)
+    #expect(board.previewedCoordinates.isEmpty)
+    board.handleRelease(.primary, at: coordinate)
+    #expect(controller.gameForTesting.status == .ready)
+    if let sheet = controller.window?.attachedSheet {
+        controller.window?.endSheet(sheet)
+    }
+}
+
+@Test @MainActor func windowForcesClassicAquaAppearance() throws {
+    let controller = try ClassicGameWindowController.make()
+    #expect(controller.window?.appearance?.name == .aqua)
+    #expect(controller.window?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua)
 }
 
     @Test @MainActor func accessibilityNotificationsCollapseBatchChanges() {

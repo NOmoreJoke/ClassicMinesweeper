@@ -69,6 +69,8 @@ public final class ClassicBoardView: NSView {
     private var pendingChangedCoordinates: Set<Coordinate>?
     private var baseBitmap: NSBitmapImageRep?
     private var accessibilityCells: [Coordinate: BoardAccessibilityCell] = [:]
+    private var accessibilityRowElements: [BoardAccessibilityRow] = []
+    private var accessibilityColumnElements: [BoardAccessibilityColumn] = []
     private let signposter = OSSignposter(subsystem: BuildInfo.bundleIdentifier, category: "BoardInput")
 
     public override var isFlipped: Bool { true }
@@ -364,7 +366,24 @@ public final class ClassicBoardView: NSView {
         accessibilityCells = Dictionary(uniqueKeysWithValues: coordinates.map { coordinate in
             (coordinate, BoardAccessibilityCell(coordinate: coordinate, boardView: self))
         })
-        setAccessibilityChildren(coordinates.compactMap { accessibilityCells[$0] })
+        let dimensions = game.configuration.dimensions
+        accessibilityRowElements = (0..<dimensions.rows).map { row in
+            let cells = (0..<dimensions.columns).compactMap { column in
+                accessibilityCells[Coordinate(row: row, column: column)]
+            }
+            return BoardAccessibilityRow(index: row, boardView: self, cells: cells)
+        }
+        accessibilityColumnElements = (0..<dimensions.columns).map { column in
+            let cells = (0..<dimensions.rows).compactMap { row in
+                accessibilityCells[Coordinate(row: row, column: column)]
+            }
+            return BoardAccessibilityColumn(index: column, boardView: self, cells: cells)
+        }
+        setAccessibilityChildren(accessibilityRowElements)
+        setAccessibilityRows(accessibilityRowElements)
+        setAccessibilityColumns(accessibilityColumnElements)
+        setAccessibilityRowCount(dimensions.rows)
+        setAccessibilityColumnCount(dimensions.columns)
         refreshAccessibilityFrames()
     }
 
@@ -373,9 +392,25 @@ public final class ClassicBoardView: NSView {
         for (coordinate, element) in accessibilityCells {
             element.setAccessibilityFrameInParentSpace(NSRect(
                 x: CGFloat(coordinate.column) * side,
-                y: CGFloat(coordinate.row) * side,
+                y: 0,
                 width: side,
                 height: side
+            ))
+        }
+        for row in accessibilityRowElements {
+            row.setAccessibilityFrameInParentSpace(NSRect(
+                x: 0,
+                y: CGFloat(row.index) * side,
+                width: CGFloat(game.configuration.dimensions.columns) * side,
+                height: side
+            ))
+        }
+        for column in accessibilityColumnElements {
+            column.setAccessibilityFrameInParentSpace(NSRect(
+                x: CGFloat(column.index) * side,
+                y: 0,
+                width: side,
+                height: CGFloat(game.configuration.dimensions.rows) * side
             ))
         }
     }

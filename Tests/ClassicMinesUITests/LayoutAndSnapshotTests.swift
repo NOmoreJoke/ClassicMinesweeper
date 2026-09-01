@@ -168,7 +168,7 @@ private func expectExactTwoTimesScale(_ one: NSBitmapImageRep, _ two: NSBitmapIm
     let freshLostView = ClassicBoardView(game: lost, scale: 2)
     freshLostView.frame = NSRect(origin: .zero, size: freshLostView.intrinsicContentSize)
     #expect(pixels(incrementalLost) == pixels(try render(freshLostView)))
-    let lostCells = try #require(lostView.accessibilityChildren() as? [BoardAccessibilityCell])
+    let lostCells = accessibilityCells(in: lostView)
     #expect(lostCells.allSatisfy { $0.accessibilityCustomActions()?.isEmpty == true })
 
     var winning = MinesweeperGame(configuration: GamePreset.beginner.configuration, seed: 11)
@@ -186,7 +186,7 @@ private func expectExactTwoTimesScale(_ one: NSBitmapImageRep, _ two: NSBitmapIm
     let freshWonView = ClassicBoardView(game: winning, scale: 2)
     freshWonView.frame = NSRect(origin: .zero, size: freshWonView.intrinsicContentSize)
     #expect(pixels(incrementalWon) == pixels(try render(freshWonView)))
-    let wonCells = try #require(wonView.accessibilityChildren() as? [BoardAccessibilityCell])
+    let wonCells = accessibilityCells(in: wonView)
     #expect(wonCells.allSatisfy { $0.accessibilityCustomActions()?.isEmpty == true })
 }
 
