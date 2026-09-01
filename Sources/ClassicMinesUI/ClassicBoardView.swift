@@ -11,6 +11,12 @@ public final class ClassicBoardView: NSView {
     }
     public weak var interactionDelegate: ClassicBoardInteractionDelegate?
     public var pressingStateDidChange: ((Bool) -> Void)?
+    public var inputEnabled = true {
+        didSet {
+            if !inputEnabled { cancelPointerGesture() }
+            refreshAccessibilityValues()
+        }
+    }
 
     public var game: MinesweeperGame {
         didSet {
@@ -110,6 +116,7 @@ public final class ClassicBoardView: NSView {
     }
 
     public override func mouseDown(with event: NSEvent) {
+        guard inputEnabled else { return }
         let state = signposter.beginInterval("PrimaryPress")
         defer { signposter.endInterval("PrimaryPress", state) }
         guard let coordinate = coordinate(for: event) else { return }
@@ -117,6 +124,7 @@ public final class ClassicBoardView: NSView {
     }
 
     public override func rightMouseDown(with event: NSEvent) {
+        guard inputEnabled else { return }
         let state = signposter.beginInterval("SecondaryPress")
         defer { signposter.endInterval("SecondaryPress", state) }
         guard let coordinate = coordinate(for: event) else { return }
@@ -124,10 +132,12 @@ public final class ClassicBoardView: NSView {
     }
 
     public override func mouseDragged(with event: NSEvent) {
+        guard inputEnabled else { return }
         handleDrag(to: coordinate(for: event))
     }
 
     public override func rightMouseDragged(with event: NSEvent) {
+        guard inputEnabled else { return }
         handleDrag(to: coordinate(for: event))
     }
 
@@ -150,6 +160,7 @@ public final class ClassicBoardView: NSView {
     }
 
     public override func keyDown(with event: NSEvent) {
+        guard inputEnabled else { return }
         guard let focused = focusedCoordinate else {
             super.keyDown(with: event)
             return
@@ -176,7 +187,7 @@ public final class ClassicBoardView: NSView {
     }
 
     func handlePress(_ button: PointerButton, at coordinate: Coordinate) {
-        guard !game.status.isTerminal else { return }
+        guard inputEnabled, !game.status.isTerminal else { return }
         if gestureOrigin == nil {
             gestureOrigin = coordinate
         }
@@ -212,10 +223,15 @@ public final class ClassicBoardView: NSView {
     }
 
     func handleDrag(to coordinate: Coordinate?) {
+        guard inputEnabled else { return }
         updatePreview(pointer: coordinate)
     }
 
     func handleRelease(_ button: PointerButton, at coordinate: Coordinate?) {
+        guard inputEnabled else {
+            cancelPointerGesture()
+            return
+        }
         guard let origin = gestureOrigin else { return }
         let isInsideOrigin = coordinate == origin
 
@@ -278,7 +294,8 @@ public final class ClassicBoardView: NSView {
     }
 
     func performAccessibilityReveal(at coordinate: Coordinate) -> Bool {
-        guard game.configuration.dimensions.contains(coordinate),
+        guard inputEnabled,
+              game.configuration.dimensions.contains(coordinate),
               !game[coordinate].isRevealed,
               game[coordinate].mark != .flag,
               !game.status.isTerminal else { return false }
@@ -288,7 +305,8 @@ public final class ClassicBoardView: NSView {
     }
 
     func performAccessibilityToggleMark(at coordinate: Coordinate) -> Bool {
-        guard game.configuration.dimensions.contains(coordinate),
+        guard inputEnabled,
+              game.configuration.dimensions.contains(coordinate),
               !game[coordinate].isRevealed,
               !game.status.isTerminal else { return false }
         focusedCoordinate = coordinate
@@ -297,7 +315,8 @@ public final class ClassicBoardView: NSView {
     }
 
     func performAccessibilityChord(at coordinate: Coordinate) -> Bool {
-        guard game.configuration.dimensions.contains(coordinate),
+        guard inputEnabled,
+              game.configuration.dimensions.contains(coordinate),
               isChordOrigin(coordinate),
               !game.status.isTerminal else { return false }
         focusedCoordinate = coordinate
@@ -428,16 +447,16 @@ public final class ClassicBoardView: NSView {
             element.setAccessibilityLabel("Row \(coordinate.row + 1), column \(coordinate.column + 1)")
             element.setAccessibilityValue(accessibilityValue(for: coordinate))
             let cell = game[coordinate]
-            if !game.status.isTerminal && !cell.isRevealed && cell.mark == .flag {
+            if inputEnabled && !game.status.isTerminal && !cell.isRevealed && cell.mark == .flag {
                 element.setAccessibilityCustomActions([
                     NSAccessibilityCustomAction(name: "Toggle mark", target: element, selector: #selector(BoardAccessibilityCell.performToggleMark)),
                 ])
-            } else if !game.status.isTerminal && !cell.isRevealed {
+            } else if inputEnabled && !game.status.isTerminal && !cell.isRevealed {
                 element.setAccessibilityCustomActions([
                     NSAccessibilityCustomAction(name: "Reveal", target: element, selector: #selector(BoardAccessibilityCell.performReveal)),
                     NSAccessibilityCustomAction(name: "Toggle mark", target: element, selector: #selector(BoardAccessibilityCell.performToggleMark)),
                 ])
-            } else if !game.status.isTerminal && cell.isRevealed && cell.adjacentMineCount > 0 {
+            } else if inputEnabled && !game.status.isTerminal && cell.isRevealed && cell.adjacentMineCount > 0 {
                 element.setAccessibilityCustomActions([
                     NSAccessibilityCustomAction(name: "Chord", target: element, selector: #selector(BoardAccessibilityCell.performChord)),
                 ])
@@ -449,7 +468,9 @@ public final class ClassicBoardView: NSView {
 
     @objc func accessibilityPerformDefaultCell(_ request: AccessibilityRequest) {
         let coordinate = request.coordinate
-        guard game.configuration.dimensions.contains(coordinate), !game.status.isTerminal else {
+        guard inputEnabled,
+              game.configuration.dimensions.contains(coordinate),
+              !game.status.isTerminal else {
             request.complete(false)
             return
         }

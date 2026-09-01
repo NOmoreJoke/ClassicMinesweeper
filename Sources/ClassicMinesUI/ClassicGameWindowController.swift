@@ -9,6 +9,7 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
     private let preferences: PreferencesStore
     private var refreshTimer: Timer?
     private var reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    private var modalInputBlocked = false
 
     public static func make() throws -> ClassicGameWindowController {
         let preferences = PreferencesStore()
@@ -76,33 +77,39 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
     }
 
     @objc public func newGame(_ sender: Any?) {
+        guard !modalInputBlocked else { return }
         replaceGame(configuration: game.configuration)
     }
 
     @objc public func selectBeginner(_ sender: Any?) {
+        guard !modalInputBlocked else { return }
         replaceGame(configuration: GamePreset.beginner.configuration)
     }
 
     @objc public func selectIntermediate(_ sender: Any?) {
+        guard !modalInputBlocked else { return }
         replaceGame(configuration: GamePreset.intermediate.configuration)
     }
 
     @objc public func selectExpert(_ sender: Any?) {
+        guard !modalInputBlocked else { return }
         replaceGame(configuration: GamePreset.expert.configuration)
     }
 
     @objc public func toggleMarks(_ sender: Any?) {
+        guard !modalInputBlocked else { return }
         game.setMarksEnabled(!game.marksEnabled)
         preferences.marksEnabled = game.marksEnabled
         preferences.savePreferences()
         gameView.update(game: game, scale: scale)
     }
 
-    @objc public func selectScale1(_ sender: Any?) { applyScale(1) }
-    @objc public func selectScale2(_ sender: Any?) { applyScale(2) }
-    @objc public func selectScale3(_ sender: Any?) { applyScale(3) }
+    @objc public func selectScale1(_ sender: Any?) { if !modalInputBlocked { applyScale(1) } }
+    @objc public func selectScale2(_ sender: Any?) { if !modalInputBlocked { applyScale(2) } }
+    @objc public func selectScale3(_ sender: Any?) { if !modalInputBlocked { applyScale(3) } }
 
     @objc public func showRules(_ sender: Any?) {
+        guard !modalInputBlocked else { return }
         showSheet(
             title: "Rules",
             message: "Reveal every safe square. Right-click to place a flag. Press both mouse buttons on a number to reveal its neighbors when the flag count matches."
@@ -110,12 +117,12 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
     }
 
     @objc public func showAbout(_ sender: Any?) {
+        guard !modalInputBlocked else { return }
         showSheet(title: "Classic Mines", message: "A local, offline, ad-free classic minesweeper for macOS.")
     }
 
     @objc public func showCustomGame(_ sender: Any?) {
-        guard let window else { return }
-        gameView.boardView.cancelPointerGesture()
+        guard !modalInputBlocked else { return }
         let columns = NSTextField(string: "16")
         let rows = NSTextField(string: "16")
         let mines = NSTextField(string: "40")
@@ -132,7 +139,7 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
         alert.accessoryView = grid
         alert.addButton(withTitle: "Start")
         alert.addButton(withTitle: "Cancel")
-        alert.beginSheetModal(for: window) { [weak self] response in
+        presentSheet(alert) { [weak self] response in
             guard response == .alertFirstButtonReturn,
                   let columnCount = Int(columns.stringValue),
                   let rowCount = Int(rows.stringValue),
@@ -152,6 +159,7 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
     }
 
     @objc public func showBestTimes(_ sender: Any?) {
+        guard !modalInputBlocked else { return }
         let lines = GamePreset.allCases.map { preset -> String in
             let title = preset.rawValue.capitalized
             if let record = preferences.bestTimes.records[preset] {
@@ -163,14 +171,13 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
     }
 
     @objc public func resetRecords(_ sender: Any?) {
-        guard let window else { return }
-        gameView.boardView.cancelPointerGesture()
+        guard !modalInputBlocked else { return }
         let alert = NSAlert()
         alert.messageText = "Reset Best Times?"
         alert.informativeText = "This removes all three local records."
         alert.addButton(withTitle: "Reset")
         alert.addButton(withTitle: "Cancel")
-        alert.beginSheetModal(for: window) { [weak self] response in
+        presentSheet(alert) { [weak self] response in
             guard response == .alertFirstButtonReturn else { return }
             self?.preferences.bestTimes.reset()
             self?.preferences.saveBestTimes()
@@ -178,8 +185,7 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
     }
 
     @objc public func showPreferences(_ sender: Any?) {
-        guard let window else { return }
-        gameView.boardView.cancelPointerGesture()
+        guard !modalInputBlocked else { return }
         let nameField = NSTextField(string: preferences.playerName)
         nameField.frame.size = NSSize(width: 200, height: 24)
         let alert = NSAlert()
@@ -188,7 +194,7 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
         alert.accessoryView = nameField
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
-        alert.beginSheetModal(for: window) { [weak self] response in
+        presentSheet(alert) { [weak self] response in
             guard response == .alertFirstButtonReturn else { return }
             let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             self?.preferences.playerName = name.isEmpty ? NSUserName() : name
@@ -197,24 +203,30 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
     }
 
     public func boardView(_ boardView: ClassicBoardView, reveal coordinate: Coordinate) {
+        guard !modalInputBlocked else { return }
         let previous = game.status
         let change = game.reveal(coordinate)
         apply(change: change, previousStatus: previous)
     }
 
     public func boardView(_ boardView: ClassicBoardView, toggleMark coordinate: Coordinate) {
+        guard !modalInputBlocked else { return }
         let previous = game.status
         let change = game.toggleMark(at: coordinate)
         apply(change: change, previousStatus: previous)
     }
 
     public func boardView(_ boardView: ClassicBoardView, chord coordinate: Coordinate) {
+        guard !modalInputBlocked else { return }
         let previous = game.status
         let change = game.chord(at: coordinate)
         apply(change: change, previousStatus: previous)
     }
 
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if modalInputBlocked, Self.gameChangingActions.contains(menuItem.action) {
+            return false
+        }
         switch menuItem.action {
         case #selector(toggleMarks(_:)):
             menuItem.state = game.marksEnabled ? .on : .off
@@ -326,15 +338,33 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
     }
 
     private func showSheet(title: String, message: String) {
-        guard let window else { return }
-        gameView.boardView.cancelPointerGesture()
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
+        presentSheet(alert)
     }
 
     var boardViewForTesting: ClassicBoardView { gameView.boardView }
     var gameForTesting: MinesweeperGame { game }
+    var modalInputBlockedForTesting: Bool { modalInputBlocked }
+
+    private func presentSheet(_ alert: NSAlert, completion: ((NSApplication.ModalResponse) -> Void)? = nil) {
+        guard let window, !modalInputBlocked else { return }
+        modalInputBlocked = true
+        gameView.boardView.inputEnabled = false
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            modalInputBlocked = false
+            gameView.boardView.inputEnabled = true
+            completion?(response)
+        }
+    }
+
+    private static let gameChangingActions: Set<Selector?> = [
+        #selector(newGame(_:)), #selector(selectBeginner(_:)), #selector(selectIntermediate(_:)),
+        #selector(selectExpert(_:)), #selector(showCustomGame(_:)), #selector(toggleMarks(_:)),
+        #selector(selectScale1(_:)), #selector(selectScale2(_:)), #selector(selectScale3(_:)),
+        #selector(resetRecords(_:)), #selector(showPreferences(_:)),
+    ]
 }

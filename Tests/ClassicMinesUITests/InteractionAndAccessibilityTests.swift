@@ -273,6 +273,7 @@ func accessibilityCells(in board: ClassicBoardView) -> [BoardAccessibilityCell] 
 
 @Test @MainActor func newGameAndSheetsCancelInFlightPointerState() throws {
     let controller = try ClassicGameWindowController.make()
+    controller.showWindow(nil)
     let board = controller.boardViewForTesting
     let coordinate = Coordinate(row: 0, column: 0)
 
@@ -284,13 +285,59 @@ func accessibilityCells(in board: ClassicBoardView) -> [BoardAccessibilityCell] 
     #expect(controller.gameForTesting.status == .ready)
 
     board.handlePress(.primary, at: coordinate)
+    board.handleRelease(.primary, at: coordinate)
+    #expect(controller.gameForTesting.status == .playing)
+    let covered = try #require(controller.gameForTesting.allCoordinates().first {
+        !controller.gameForTesting[$0].isRevealed
+    })
+    board.focusedCoordinate = covered
+    let markBefore = controller.gameForTesting[covered].mark
+    let marksEnabledBefore = controller.gameForTesting.marksEnabled
+
+    board.handlePress(.primary, at: covered)
     controller.showRules(nil)
     #expect(board.previewedCoordinates.isEmpty)
-    board.handleRelease(.primary, at: coordinate)
-    #expect(controller.gameForTesting.status == .ready)
+    #expect(controller.modalInputBlockedForTesting)
+    #expect(!board.inputEnabled)
+    #expect(accessibilityCells(in: board).allSatisfy { $0.accessibilityCustomActions()?.isEmpty == true })
+    let coveredElement = try #require(accessibilityCells(in: board).first {
+        $0.coordinate == covered
+    })
+    #expect(!coveredElement.accessibilityPerformPress())
+
+    let markKey = try #require(NSEvent.keyEvent(
+        with: .keyDown,
+        location: .zero,
+        modifierFlags: [],
+        timestamp: 0,
+        windowNumber: 0,
+        context: nil,
+        characters: "f",
+        charactersIgnoringModifiers: "f",
+        isARepeat: false,
+        keyCode: 3
+    ))
+    board.keyDown(with: markKey)
+    controller.toggleMarks(nil)
+    controller.newGame(nil)
+    board.handleRelease(.primary, at: covered)
+    #expect(controller.gameForTesting.status == .playing)
+    #expect(controller.gameForTesting[covered].mark == markBefore)
+    #expect(controller.gameForTesting.marksEnabled == marksEnabledBefore)
+
+    let newItem = NSMenuItem(
+        title: "New",
+        action: #selector(ClassicGameWindowController.newGame(_:)),
+        keyEquivalent: "n"
+    )
+    #expect(!controller.validateMenuItem(newItem))
     if let sheet = controller.window?.attachedSheet {
         controller.window?.endSheet(sheet)
     }
+    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    #expect(!controller.modalInputBlockedForTesting)
+    #expect(board.inputEnabled)
+    controller.close()
 }
 
 @Test @MainActor func windowForcesClassicAquaAppearance() throws {
