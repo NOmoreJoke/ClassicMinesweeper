@@ -31,6 +31,24 @@ private final class SendableAccessibilityCellBox: @unchecked Sendable {
 }
 
 @MainActor
+private final class ApplyingMarkDelegate: ClassicBoardInteractionDelegate {
+    private var game: MinesweeperGame
+
+    init(game: MinesweeperGame) {
+        self.game = game
+    }
+
+    func boardView(_ boardView: ClassicBoardView, reveal coordinate: Coordinate) {}
+
+    func boardView(_ boardView: ClassicBoardView, toggleMark coordinate: Coordinate) {
+        let change = game.toggleMark(at: coordinate)
+        boardView.apply(game: game, changedCoordinates: change.changedCoordinates)
+    }
+
+    func boardView(_ boardView: ClassicBoardView, chord coordinate: Coordinate) {}
+}
+
+@MainActor
 private func makeBoard(game: MinesweeperGame? = nil) -> (ClassicBoardView, InteractionSpy) {
     let game = game ?? MinesweeperGame(configuration: GamePreset.beginner.configuration, seed: 42)
     let board = ClassicBoardView(game: game, scale: 2)
@@ -118,6 +136,29 @@ private func makeBoard(game: MinesweeperGame? = nil) -> (ClassicBoardView, Inter
     #expect(spy.reveals.isEmpty)
     #expect(spy.marks.isEmpty)
     #expect(spy.chords.isEmpty)
+}
+
+@Test @MainActor func chordCannotRecoverAfterEitherButtonReleasesOutsideOrigin() {
+    var game = MinesweeperGame(configuration: GamePreset.beginner.configuration, seed: 42)
+    game.reveal(Coordinate(row: 4, column: 4), atNanoseconds: 0)
+    let origin = game.allCoordinates().first { game[$0].isRevealed && game[$0].adjacentMineCount > 0 }!
+    let (board, spy) = makeBoard(game: game)
+
+    board.handlePress(.primary, at: origin)
+    board.handlePress(.secondary, at: origin)
+    board.handleRelease(.secondary, at: nil)
+    board.handleDrag(to: origin)
+    board.handleRelease(.primary, at: origin)
+
+    #expect(spy.chords.isEmpty)
+    #expect(board.previewedCoordinates.isEmpty)
+}
+
+@Test @MainActor func dirtyRectMapsOnlyToIntersectingCells() {
+    let (board, _) = makeBoard()
+    let coordinate = Coordinate(row: 3, column: 4)
+    #expect(board.coordinates(intersecting: board.cellRect(for: coordinate)) == [coordinate])
+    #expect(board.coordinates(intersecting: .zero).isEmpty)
 }
 
 @Test @MainActor func keyboardActionsIgnoreRepeatsAndFocusDoesNotWrap() throws {
@@ -277,6 +318,55 @@ private func makeBoard(game: MinesweeperGame? = nil) -> (ClassicBoardView, Inter
 }
 
 #if !DEBUG
+@Test @MainActor func realMarkInputModelAccessibilityAndDirtyDrawMeetBudget() throws {
+    let game = MinesweeperGame(configuration: GamePreset.expert.configuration, seed: 42)
+    let board = ClassicBoardView(game: game, scale: 2)
+    board.frame = NSRect(origin: .zero, size: board.intrinsicContentSize)
+    let delegate = ApplyingMarkDelegate(game: game)
+    board.interactionDelegate = delegate
+    let bitmap = try #require(NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: Int(board.bounds.width),
+        pixelsHigh: Int(board.bounds.height),
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ))
+    let graphics = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+    let coordinate = Coordinate(row: 8, column: 15)
+    let dirtyRect = board.cellRect(for: coordinate)
+    let clock = ContinuousClock()
+    var samples: [UInt64] = []
+
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = graphics
+    board.draw(board.bounds)
+    for iteration in 0..<520 {
+        let start = clock.now
+        board.handlePress(.secondary, at: coordinate)
+        board.handleRelease(.secondary, at: coordinate)
+        graphics.saveGraphicsState()
+        graphics.cgContext.clip(to: dirtyRect)
+        board.draw(dirtyRect)
+        graphics.restoreGraphicsState()
+        let components = start.duration(to: clock.now).components
+        if iteration >= 20 {
+            samples.append(
+                UInt64(components.seconds) * 1_000_000_000
+                    + UInt64(components.attoseconds / 1_000_000_000)
+            )
+        }
+    }
+    NSGraphicsContext.restoreGraphicsState()
+    samples.sort()
+    #expect(samples[(samples.count * 95) / 100] <= 4_000_000)
+    #expect(samples[(samples.count * 99) / 100] <= 8_000_000)
+}
+
 @Test @MainActor func pointerStateMachineMeetsInputBudget() {
     let (board, _) = makeBoard()
     let coordinate = Coordinate(row: 0, column: 0)

@@ -153,6 +153,43 @@ private func expectExactTwoTimesScale(_ one: NSBitmapImageRep, _ two: NSBitmapIm
     }
 }
 
+@Test @MainActor func incrementalTerminalTransitionsMatchFreshPixelsAndClearActions() throws {
+    var playing = MinesweeperGame(configuration: GamePreset.beginner.configuration, seed: 42)
+    playing.reveal(Coordinate(row: 4, column: 4), atNanoseconds: 0)
+    let lostView = ClassicBoardView(game: playing, scale: 2)
+    lostView.frame = NSRect(origin: .zero, size: lostView.intrinsicContentSize)
+    _ = try render(lostView)
+
+    var lost = playing
+    let mine = try #require(lost.allCoordinates().first { lost[$0].isMine })
+    let loss = lost.reveal(mine, atNanoseconds: 1)
+    lostView.apply(game: lost, changedCoordinates: loss.changedCoordinates)
+    let incrementalLost = try render(lostView)
+    let freshLostView = ClassicBoardView(game: lost, scale: 2)
+    freshLostView.frame = NSRect(origin: .zero, size: freshLostView.intrinsicContentSize)
+    #expect(pixels(incrementalLost) == pixels(try render(freshLostView)))
+    let lostCells = try #require(lostView.accessibilityChildren() as? [BoardAccessibilityCell])
+    #expect(lostCells.allSatisfy { $0.accessibilityCustomActions()?.isEmpty == true })
+
+    var winning = MinesweeperGame(configuration: GamePreset.beginner.configuration, seed: 11)
+    winning.reveal(Coordinate(row: 4, column: 4), atNanoseconds: 0)
+    let wonView = ClassicBoardView(game: winning, scale: 2)
+    wonView.frame = NSRect(origin: .zero, size: wonView.intrinsicContentSize)
+    _ = try render(wonView)
+    var finalChange = GameChange(changedCoordinates: [], status: winning.status)
+    for coordinate in winning.allCoordinates() where !winning[coordinate].isMine {
+        finalChange = winning.reveal(coordinate, atNanoseconds: 1)
+    }
+    #expect(winning.status == .won)
+    wonView.apply(game: winning, changedCoordinates: finalChange.changedCoordinates)
+    let incrementalWon = try render(wonView)
+    let freshWonView = ClassicBoardView(game: winning, scale: 2)
+    freshWonView.frame = NSRect(origin: .zero, size: freshWonView.intrinsicContentSize)
+    #expect(pixels(incrementalWon) == pixels(try render(freshWonView)))
+    let wonCells = try #require(wonView.accessibilityChildren() as? [BoardAccessibilityCell])
+    #expect(wonCells.allSatisfy { $0.accessibilityCustomActions()?.isEmpty == true })
+}
+
 @Test @MainActor func hudStatesHaveFrozenPixelsAndExactTwoTimesScaling() throws {
     let states: [(String, GameStatus, Int, Int)] = [
         ("ready", .ready, 10, 0),

@@ -14,13 +14,23 @@ public final class ClassicBoardView: NSView {
 
     public var game: MinesweeperGame {
         didSet {
+            let changedCoordinates = pendingChangedCoordinates
+            let requiresFullRefresh = changedCoordinates == nil
+                || oldValue.configuration.dimensions != game.configuration.dimensions
+                || (!oldValue.status.isTerminal && game.status.isTerminal)
             if let focusedCoordinate,
                !game.configuration.dimensions.contains(focusedCoordinate) {
                 self.focusedCoordinate = Coordinate(row: 0, column: 0)
             }
             rebuildAccessibilityElementsIfNeeded()
-            refreshAccessibilityValues()
-            needsDisplay = true
+            if requiresFullRefresh {
+                baseBitmap = nil
+                refreshAccessibilityValues()
+                needsDisplay = true
+            } else if let changedCoordinates {
+                refreshAccessibilityValues(at: changedCoordinates)
+                invalidate(changedCoordinates)
+            }
         }
     }
 
@@ -36,13 +46,13 @@ public final class ClassicBoardView: NSView {
     public var previewedCoordinates: Set<Coordinate> = [] {
         didSet {
             pressingStateDidChange?(!previewedCoordinates.isEmpty)
-            needsDisplay = true
+            invalidate(oldValue.symmetricDifference(previewedCoordinates))
         }
     }
 
     public var focusedCoordinate: Coordinate? {
         didSet {
-            needsDisplay = true
+            invalidate(Set([oldValue, focusedCoordinate].compactMap { $0 }))
             if let focusedCoordinate, let element = accessibilityCells[focusedCoordinate] {
                 NSAccessibility.post(element: element, notification: .focusedUIElementChanged)
             }
@@ -56,6 +66,8 @@ public final class ClassicBoardView: NSView {
     private var chordTriggered = false
     private var rightMarked = false
     private var controlClickActive = false
+    private var pendingChangedCoordinates: Set<Coordinate>?
+    private var baseBitmap: NSBitmapImageRep?
     private var accessibilityCells: [Coordinate: BoardAccessibilityCell] = [:]
     private let signposter = OSSignposter(subsystem: BuildInfo.bundleIdentifier, category: "BoardInput")
 
@@ -206,7 +218,11 @@ public final class ClassicBoardView: NSView {
         let isInsideOrigin = coordinate == origin
 
         if chordMode {
-            if !chordTriggered && isInsideOrigin {
+            if !isInsideOrigin {
+                cancelPointerGesture()
+                return
+            }
+            if !chordTriggered {
                 chordTriggered = true
                 interactionDelegate?.boardView(self, chord: origin)
             }
@@ -230,7 +246,9 @@ public final class ClassicBoardView: NSView {
     }
 
     public func apply(game: MinesweeperGame, changedCoordinates: Set<Coordinate>) {
+        pendingChangedCoordinates = changedCoordinates
         self.game = game
+        pendingChangedCoordinates = nil
         if Self.accessibilityChangeScope(for: changedCoordinates.count) == .single,
            let coordinate = changedCoordinates.first,
            let element = accessibilityCells[coordinate] {
@@ -362,8 +380,16 @@ public final class ClassicBoardView: NSView {
         }
     }
 
-    private func refreshAccessibilityValues() {
-        for (coordinate, element) in accessibilityCells {
+    private func refreshAccessibilityValues(at coordinates: Set<Coordinate>? = nil) {
+        let elements: [(Coordinate, BoardAccessibilityCell)]
+        if let coordinates {
+            elements = coordinates.compactMap { coordinate in
+                accessibilityCells[coordinate].map { (coordinate, $0) }
+            }
+        } else {
+            elements = Array(accessibilityCells)
+        }
+        for (coordinate, element) in elements {
             element.setAccessibilityLabel("Row \(coordinate.row + 1), column \(coordinate.column + 1)")
             element.setAccessibilityValue(accessibilityValue(for: coordinate))
             let cell = game[coordinate]
@@ -437,11 +463,11 @@ public final class ClassicBoardView: NSView {
     }
 
     public override func draw(_ dirtyRect: NSRect) {
+        guard let image = baseImage() else { return }
         let baseSize = NSSize(
             width: CGFloat(game.configuration.dimensions.columns * 16),
             height: CGFloat(game.configuration.dimensions.rows * 16)
         )
-        guard let image = makeBaseImage(size: baseSize) else { return }
         NSGraphicsContext.current?.imageInterpolation = .none
         NSImage(cgImage: image, size: baseSize).draw(
             in: bounds,
@@ -453,40 +479,81 @@ public final class ClassicBoardView: NSView {
         )
     }
 
-    private func makeBaseImage(size: NSSize) -> CGImage? {
-        guard let bitmap = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(size.width),
-            pixelsHigh: Int(size.height),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        ), let graphics = NSGraphicsContext(bitmapImageRep: bitmap) else { return nil }
+    func cellRect(for coordinate: Coordinate) -> NSRect {
+        let side = CGFloat(16 * scale)
+        return NSRect(
+            x: CGFloat(coordinate.column) * side,
+            y: CGFloat(coordinate.row) * side,
+            width: side,
+            height: side
+        )
+    }
+
+    func coordinates(intersecting dirtyRect: NSRect) -> [Coordinate] {
+        let dimensions = game.configuration.dimensions
+        let side = CGFloat(16 * scale)
+        let clipped = dirtyRect.intersection(bounds)
+        guard !clipped.isNull, !clipped.isEmpty else { return [] }
+        let firstColumn = max(0, Int(floor(clipped.minX / side)))
+        let lastColumn = min(dimensions.columns - 1, Int(floor((clipped.maxX - 0.001) / side)))
+        let firstRow = max(0, Int(floor(clipped.minY / side)))
+        let lastRow = min(dimensions.rows - 1, Int(floor((clipped.maxY - 0.001) / side)))
+        guard firstColumn <= lastColumn, firstRow <= lastRow else { return [] }
+        return (firstRow...lastRow).flatMap { row in
+            (firstColumn...lastColumn).map { column in Coordinate(row: row, column: column) }
+        }
+    }
+
+    private func invalidate(_ coordinates: Set<Coordinate>) {
+        updateBaseBitmap(at: coordinates)
+        for coordinate in coordinates where game.configuration.dimensions.contains(coordinate) {
+            setNeedsDisplay(cellRect(for: coordinate))
+        }
+    }
+
+    private func baseImage() -> CGImage? {
+        if baseBitmap == nil {
+            let dimensions = game.configuration.dimensions
+            baseBitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: dimensions.columns * 16,
+                pixelsHigh: dimensions.rows * 16,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            )
+            updateBaseBitmap(at: Set(game.allCoordinates()))
+        }
+        return baseBitmap?.cgImage
+    }
+
+    private func updateBaseBitmap(at coordinates: Set<Coordinate>) {
+        guard let bitmap = baseBitmap,
+              let graphics = NSGraphicsContext(bitmapImageRep: bitmap) else { return }
+        let dimensions = game.configuration.dimensions
+        let height = CGFloat(dimensions.rows * 16)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = graphics
         let context = graphics.cgContext
-        context.translateBy(x: 0, y: size.height)
+        context.translateBy(x: 0, y: height)
         context.scaleBy(x: 1, y: -1)
         context.setShouldAntialias(false)
-        context.setFillColor(ClassicPalette.darkShadow.cgColor)
-        context.fill(NSRect(origin: .zero, size: size))
-
-        let side = CGFloat(16)
-        for coordinate in game.allCoordinates() {
+        for coordinate in coordinates where dimensions.contains(coordinate) {
             let rect = NSRect(
-                x: CGFloat(coordinate.column) * side,
-                y: CGFloat(coordinate.row) * side,
-                width: side,
-                height: side
+                x: CGFloat(coordinate.column * 16),
+                y: CGFloat(coordinate.row * 16),
+                width: 16,
+                height: 16
             )
+            context.setFillColor(ClassicPalette.darkShadow.cgColor)
+            context.fill(rect)
             drawCell(at: coordinate, in: rect, pixelScale: 1, context: context)
         }
         NSGraphicsContext.restoreGraphicsState()
-        return bitmap.cgImage
     }
 
     private func drawCell(at coordinate: Coordinate, in rect: NSRect, pixelScale: Int, context: CGContext) {
