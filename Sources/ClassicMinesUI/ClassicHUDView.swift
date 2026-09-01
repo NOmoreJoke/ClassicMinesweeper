@@ -7,9 +7,45 @@ public final class ClassicHUDView: NSView {
     public var elapsedSeconds = 0 { didSet { needsDisplay = true } }
     public var gameStatus: GameStatus = .ready { didSet { needsDisplay = true } }
     public var isPressingBoard = false { didSet { needsDisplay = true } }
+    public var onRestart: (() -> Void)?
     public var scale = 1 { didSet { needsDisplay = true } }
+    private var isFacePressed = false { didSet { needsDisplay = true } }
+    private var faceGestureStartedInside = false
 
     public override var isFlipped: Bool { true }
+
+    public override func mouseDown(with event: NSEvent) {
+        handleFacePress(at: convert(event.locationInWindow, from: nil))
+    }
+
+    public override func mouseDragged(with event: NSEvent) {
+        handleFaceDrag(to: convert(event.locationInWindow, from: nil))
+    }
+
+    public override func mouseUp(with event: NSEvent) {
+        handleFaceRelease(at: convert(event.locationInWindow, from: nil))
+    }
+
+    func handleFacePress(at point: NSPoint) {
+        faceGestureStartedInside = faceRect.contains(point)
+        isFacePressed = faceGestureStartedInside
+    }
+
+    func handleFaceDrag(to point: NSPoint) {
+        isFacePressed = faceGestureStartedInside && faceRect.contains(point)
+    }
+
+    func handleFaceRelease(at point: NSPoint) {
+        let shouldRestart = faceGestureStartedInside && isFacePressed && faceRect.contains(point)
+        isFacePressed = false
+        faceGestureStartedInside = false
+        if shouldRestart { onRestart?() }
+    }
+
+    private var faceRect: NSRect {
+        let side = CGFloat(26 * scale)
+        return NSRect(x: floor(bounds.midX - side / 2), y: floor(bounds.midY - side / 2), width: side, height: side)
+    }
 
     public override func draw(_ dirtyRect: NSRect) {
         let baseSize = NSSize(width: bounds.width / CGFloat(scale), height: bounds.height / CGFloat(scale))
@@ -105,7 +141,11 @@ public final class ClassicHUDView: NSView {
     }
 
     private func drawFace(in rect: NSRect, pixelScale: Int, context: CGContext) {
-        ClassicDrawing.raised(rect, thickness: CGFloat(2 * pixelScale), context: context)
+        if isFacePressed {
+            ClassicDrawing.recessed(rect, thickness: CGFloat(2 * pixelScale), context: context)
+        } else {
+            ClassicDrawing.raised(rect, thickness: CGFloat(2 * pixelScale), context: context)
+        }
         let face = rect.insetBy(dx: CGFloat(4 * pixelScale), dy: CGFloat(4 * pixelScale))
         let pixel = CGFloat(pixelScale)
         for row in 0..<18 {

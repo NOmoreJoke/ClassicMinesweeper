@@ -25,6 +25,9 @@ public final class ClassicGameView: NSView {
         addSubview(menuBarView)
         addSubview(hudView)
         addSubview(boardView)
+        boardView.pressingStateDidChange = { [weak hudView] isPressing in
+            hudView?.isPressingBoard = isPressing
+        }
         menuBarView.scale = scale
         hudView.scale = scale
         refresh()
@@ -51,8 +54,14 @@ public final class ClassicGameView: NSView {
         menuBarView.commandTarget = target
     }
 
+    public func updateGame(_ game: MinesweeperGame, changedCoordinates: Set<Coordinate>) {
+        precondition(game.configuration == self.game.configuration)
+        self.game = game
+        boardView.apply(game: game, changedCoordinates: changedCoordinates)
+        refresh()
+    }
+
     public func refresh(nowNanoseconds: UInt64 = ContinuousTime.nowNanoseconds()) {
-        boardView.game = game
         hudView.remainingMines = game.remainingMineCount
         hudView.elapsedSeconds = game.elapsedSeconds(atNanoseconds: nowNanoseconds)
         hudView.gameStatus = game.status

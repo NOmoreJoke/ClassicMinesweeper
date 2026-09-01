@@ -35,12 +35,13 @@ public enum ClassicMenuFactory {
         add("Beginner", action: #selector(ClassicGameWindowController.selectBeginner(_:)), target: target, to: menu)
         add("Intermediate", action: #selector(ClassicGameWindowController.selectIntermediate(_:)), target: target, to: menu)
         add("Expert", action: #selector(ClassicGameWindowController.selectExpert(_:)), target: target, to: menu)
-        let custom = add("Custom…", action: nil, target: target, to: menu)
-        custom.isEnabled = false
+        add("Custom…", action: #selector(ClassicGameWindowController.showCustomGame(_:)), target: target, to: menu)
         menu.addItem(.separator())
         add("Marks (?)", action: #selector(ClassicGameWindowController.toggleMarks(_:)), target: target, to: menu)
-        let best = add("Best Times…", action: nil, target: target, to: menu)
-        best.isEnabled = false
+        add("Best Times…", action: #selector(ClassicGameWindowController.showBestTimes(_:)), target: target, to: menu)
+        add("Reset Records…", action: #selector(ClassicGameWindowController.resetRecords(_:)), target: target, to: menu)
+        menu.addItem(.separator())
+        add("Preferences…", action: #selector(ClassicGameWindowController.showPreferences(_:)), key: ",", target: target, to: menu)
         return menu
     }
 
@@ -73,4 +74,3 @@ public enum ClassicMenuFactory {
         return item
     }
 }
-

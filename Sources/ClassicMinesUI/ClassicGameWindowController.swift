@@ -2,19 +2,36 @@ import AppKit
 import GameCore
 
 @MainActor
-public final class ClassicGameWindowController: NSWindowController, NSMenuItemValidation {
+public final class ClassicGameWindowController: NSWindowController, NSMenuItemValidation, ClassicBoardInteractionDelegate {
     private var game: MinesweeperGame
-    private var scale = 2
+    private var scale: Int
     private let gameView: ClassicGameView
+    private let preferences: PreferencesStore
+    private var refreshTimer: Timer?
+    private var reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
 
     public static func make() throws -> ClassicGameWindowController {
-        ClassicGameWindowController(
-            initialGame: try MinesweeperGame(configuration: GamePreset.beginner.configuration)
+        let preferences = PreferencesStore()
+        let game = try makeGame(
+            configuration: GamePreset.beginner.configuration,
+            marksEnabled: preferences.marksEnabled
+        )
+        return ClassicGameWindowController(
+            initialGame: game,
+            preferences: preferences
         )
     }
 
-    private init(initialGame: MinesweeperGame) {
+    static func makeGame(configuration: GameConfiguration, marksEnabled: Bool) throws -> MinesweeperGame {
+        var game = try MinesweeperGame(configuration: configuration)
+        game.setMarksEnabled(marksEnabled)
+        return game
+    }
+
+    private init(initialGame: MinesweeperGame, preferences: PreferencesStore) {
         game = initialGame
+        self.preferences = preferences
+        scale = preferences.scale
         gameView = ClassicGameView(game: game, scale: scale, commandTarget: nil)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: gameView.frame.size),
@@ -28,6 +45,27 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
         window.contentView = gameView
         super.init(window: window)
         gameView.setCommandTarget(self)
+        gameView.boardView.interactionDelegate = self
+        gameView.hudView.onRestart = { [weak self] in self?.newGame(nil) }
+        window.initialFirstResponder = gameView.boardView
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(cancelPointerGesture(_:)),
+            name: NSWindow.didResignKeyNotification,
+            object: window
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(cancelPointerGesture(_:)),
+            name: NSApplication.didResignActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(accessibilityDisplayOptionsChanged(_:)),
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil
+        )
         window.center()
     }
 
@@ -54,6 +92,8 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
 
     @objc public func toggleMarks(_ sender: Any?) {
         game.setMarksEnabled(!game.marksEnabled)
+        preferences.marksEnabled = game.marksEnabled
+        preferences.savePreferences()
         gameView.update(game: game, scale: scale)
     }
 
@@ -70,6 +110,104 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
 
     @objc public func showAbout(_ sender: Any?) {
         showSheet(title: "Classic Mines", message: "A local, offline, ad-free classic minesweeper for macOS.")
+    }
+
+    @objc public func showCustomGame(_ sender: Any?) {
+        guard let window else { return }
+        let columns = NSTextField(string: "16")
+        let rows = NSTextField(string: "16")
+        let mines = NSTextField(string: "40")
+        let grid = NSGridView(views: [
+            [NSTextField(labelWithString: "Columns (9–30)"), columns],
+            [NSTextField(labelWithString: "Rows (9–24)"), rows],
+            [NSTextField(labelWithString: "Mines"), mines],
+        ])
+        grid.column(at: 0).xPlacement = .trailing
+        grid.column(at: 1).width = 90
+
+        let alert = NSAlert()
+        alert.messageText = "Custom Game"
+        alert.accessoryView = grid
+        alert.addButton(withTitle: "Start")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn,
+                  let columnCount = Int(columns.stringValue),
+                  let rowCount = Int(rows.stringValue),
+                  let mineCount = Int(mines.stringValue),
+                  let configuration = try? GameConfiguration(
+                      columns: columnCount,
+                      rows: rowCount,
+                      mineCount: mineCount
+                  ) else {
+                if response == .alertFirstButtonReturn {
+                    self?.showSheet(title: "Invalid Board", message: "Use columns 9–30, rows 9–24, and no more than cells minus 9 mines.")
+                }
+                return
+            }
+            self?.replaceGame(configuration: configuration)
+        }
+    }
+
+    @objc public func showBestTimes(_ sender: Any?) {
+        let lines = GamePreset.allCases.map { preset -> String in
+            let title = preset.rawValue.capitalized
+            if let record = preferences.bestTimes.records[preset] {
+                return "\(title): \(record.seconds)s — \(record.name)"
+            }
+            return "\(title): —"
+        }
+        showSheet(title: "Best Times", message: lines.joined(separator: "\n"))
+    }
+
+    @objc public func resetRecords(_ sender: Any?) {
+        guard let window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Reset Best Times?"
+        alert.informativeText = "This removes all three local records."
+        alert.addButton(withTitle: "Reset")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.preferences.bestTimes.reset()
+            self?.preferences.saveBestTimes()
+        }
+    }
+
+    @objc public func showPreferences(_ sender: Any?) {
+        guard let window else { return }
+        let nameField = NSTextField(string: preferences.playerName)
+        nameField.frame.size = NSSize(width: 200, height: 24)
+        let alert = NSAlert()
+        alert.messageText = "Preferences"
+        alert.informativeText = "Name used for local best times"
+        alert.accessoryView = nameField
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            self?.preferences.playerName = name.isEmpty ? NSUserName() : name
+            self?.preferences.savePreferences()
+        }
+    }
+
+    public func boardView(_ boardView: ClassicBoardView, reveal coordinate: Coordinate) {
+        let previous = game.status
+        let change = game.reveal(coordinate)
+        apply(change: change, previousStatus: previous)
+    }
+
+    public func boardView(_ boardView: ClassicBoardView, toggleMark coordinate: Coordinate) {
+        let previous = game.status
+        let change = game.toggleMark(at: coordinate)
+        apply(change: change, previousStatus: previous)
+    }
+
+    public func boardView(_ boardView: ClassicBoardView, chord coordinate: Coordinate) {
+        let previous = game.status
+        let change = game.chord(at: coordinate)
+        apply(change: change, previousStatus: previous)
     }
 
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
@@ -96,7 +234,12 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
 
     private func replaceGame(configuration: GameConfiguration) {
         do {
-            game = try MinesweeperGame(configuration: configuration)
+            game = try Self.makeGame(
+                configuration: configuration,
+                marksEnabled: preferences.marksEnabled
+            )
+            refreshTimer?.invalidate()
+            refreshTimer = nil
             applyCurrentState()
         } catch {
             showSheet(title: "New Game Failed", message: "A secure local game seed could not be created.")
@@ -111,6 +254,8 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
             return
         }
         scale = candidate
+        preferences.scale = scale
+        preferences.savePreferences()
         applyCurrentState()
     }
 
@@ -126,6 +271,53 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
         gameView.update(game: game, scale: scale)
         window?.setContentSize(layout.contentSize)
         window?.center()
+    }
+
+    private func apply(change: GameChange, previousStatus: GameStatus) {
+        gameView.updateGame(game, changedCoordinates: change.changedCoordinates)
+        if previousStatus == .ready && game.status == .playing {
+            startRefreshTimer()
+        }
+        if !previousStatus.isTerminal && game.status.isTerminal {
+            refreshTimer?.invalidate()
+            refreshTimer = nil
+            switch game.status {
+            case .won:
+                if let result = game.completedGame(),
+                   preferences.bestTimes.submit(result, name: preferences.playerName) {
+                    preferences.saveBestTimes()
+                }
+                gameView.boardView.announce("Victory, \(game.elapsedSeconds()) seconds")
+            case .lost:
+                gameView.boardView.announce("Mine hit, game over")
+            case .ready, .playing:
+                break
+            }
+        }
+    }
+
+    private func startRefreshTimer() {
+        guard refreshTimer == nil else { return }
+        refreshTimer = Timer.scheduledTimer(
+            timeInterval: 0.2,
+            target: self,
+            selector: #selector(refreshTimerFired(_:)),
+            userInfo: nil,
+            repeats: true
+        )
+    }
+
+    @objc private func refreshTimerFired(_ timer: Timer) {
+        gameView.refresh()
+    }
+
+    @objc private func cancelPointerGesture(_ notification: Notification) {
+        gameView.boardView.cancelPointerGesture()
+    }
+
+    @objc private func accessibilityDisplayOptionsChanged(_ notification: Notification) {
+        reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        gameView.boardView.needsDisplay = true
     }
 
     private func showSheet(title: String, message: String) {

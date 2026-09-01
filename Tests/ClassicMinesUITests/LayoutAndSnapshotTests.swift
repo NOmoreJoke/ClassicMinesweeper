@@ -89,6 +89,7 @@ private func expectExactTwoTimesScale(_ one: NSBitmapImageRep, _ two: NSBitmapIm
     let gameMenu = ClassicMenuFactory.gameMenu(target: nil)
     #expect(gameMenu.items.map(\.title) == [
         "New", "", "Beginner", "Intermediate", "Expert", "Custom…", "", "Marks (?)", "Best Times…",
+        "Reset Records…", "", "Preferences…",
     ])
     #expect(gameMenu.item(withTitle: "New")?.action == #selector(ClassicGameWindowController.newGame(_:)))
     #expect(gameMenu.item(withTitle: "Marks (?)")?.action == #selector(ClassicGameWindowController.toggleMarks(_:)))
