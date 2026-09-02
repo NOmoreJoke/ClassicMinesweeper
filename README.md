@@ -2,6 +2,8 @@
 
 macOS 本地原生、纯离线、零广告的经典扫雷。
 
+- 本地保存标准难度最好成绩与最近100条通关历史
+
 - 当前阶段：1.0 本地发行
 - 目标设备：Apple Silicon Mac
 - 设计计划：[docs/DESIGN_PLAN.md](docs/DESIGN_PLAN.md)

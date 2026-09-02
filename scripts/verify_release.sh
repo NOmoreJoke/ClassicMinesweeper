@@ -4,7 +4,7 @@ set -euo pipefail
 project_dir="${0:A:h:h}"
 dist_dir="$project_dir/dist"
 app_path="$dist_dir/Classic Mines.app"
-dmg_path="$dist_dir/Classic-Mines-1.0.0-arm64.dmg"
+dmg_path="$dist_dir/Classic-Mines-1.1.0-arm64.dmg"
 installed_path="/Applications/Classic Mines.app"
 installed_executable="$installed_path/Contents/MacOS/ClassicMines"
 probe_dir="$(mktemp -d)"

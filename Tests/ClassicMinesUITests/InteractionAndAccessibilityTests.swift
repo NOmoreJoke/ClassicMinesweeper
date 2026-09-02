@@ -203,6 +203,38 @@ func accessibilityCells(in board: ClassicBoardView) -> [BoardAccessibilityCell] 
     #expect(board.focusedCoordinate == Coordinate(row: 0, column: 0))
 }
 
+@Test @MainActor func focusRingAppearsOnlyForKeyboardOrAccessibilityNavigation() throws {
+    let (board, _) = makeBoard()
+    _ = board.becomeFirstResponder()
+    #expect(board.focusedCoordinate == Coordinate(row: 0, column: 0))
+    #expect(!board.focusIndicatorVisible)
+
+    let right = try #require(NSEvent.keyEvent(
+        with: .keyDown,
+        location: .zero,
+        modifierFlags: [],
+        timestamp: 0,
+        windowNumber: 0,
+        context: nil,
+        characters: "",
+        charactersIgnoringModifiers: "",
+        isARepeat: false,
+        keyCode: 124
+    ))
+    board.keyDown(with: right)
+    #expect(board.focusedCoordinate == Coordinate(row: 0, column: 1))
+    #expect(board.focusIndicatorVisible)
+
+    board.handlePress(.primary, at: Coordinate(row: 0, column: 1))
+    #expect(!board.focusIndicatorVisible)
+    board.cancelPointerGesture()
+
+    let last = try #require(accessibilityCells(in: board).last)
+    last.setAccessibilityFocused(true)
+    #expect(board.focusedCoordinate == Coordinate(row: 8, column: 8))
+    #expect(board.focusIndicatorVisible)
+}
+
 @Test @MainActor func virtualAccessibilityGridHasStableCellsValuesAndActions() {
     let (board, spy) = makeBoard()
     let rows = board.accessibilityRows() as? [BoardAccessibilityRow]
@@ -382,6 +414,14 @@ func accessibilityCells(in board: ClassicBoardView) -> [BoardAccessibilityCell] 
     store.scale = 3
     store.marksEnabled = false
     store.playerName = "Tester"
+    for index in 0...100 {
+        store.addCompletion(
+            configuration: GamePreset.beginner.configuration,
+            seconds: index,
+            name: "Tester",
+            completedAt: Date(timeIntervalSince1970: TimeInterval(index))
+        )
+    }
     let accepted = store.bestTimes.submit(
         CompletedGame(preset: .beginner, seconds: 12),
         name: "Tester"
@@ -395,10 +435,44 @@ func accessibilityCells(in board: ClassicBoardView) -> [BoardAccessibilityCell] 
     #expect(!loaded.marksEnabled)
     #expect(loaded.playerName == "Tester")
     #expect(loaded.bestTimes.records[.beginner]?.seconds == 12)
+    #expect(loaded.completionHistory.records.count == 100)
+    #expect(loaded.completionHistory.records.first?.seconds == 100)
+    #expect(loaded.completionHistory.records.last?.seconds == 1)
 
     defaults.set(Data("not-json".utf8), forKey: "bestTimes")
+    defaults.set(Data("not-json".utf8), forKey: "completionHistory")
     let recovered = PreferencesStore(defaults: defaults)
     #expect(recovered.bestTimes.records.isEmpty)
+    #expect(recovered.completionHistory.records.isEmpty)
+}
+
+@Test @MainActor func recordsMessageShowsBestTimesAndRecentWins() throws {
+    var bestTimes = BestTimes()
+    let accepted = bestTimes.submit(
+        CompletedGame(preset: .beginner, seconds: 12),
+        name: "Tester"
+    )
+    #expect(accepted)
+    let custom = try GameConfiguration(columns: 12, rows: 12, mineCount: 20)
+    let record = try CompletionHistoryRecord(
+        completedAt: Date(timeIntervalSince1970: 0),
+        configuration: custom,
+        seconds: 34,
+        name: "Tester"
+    )
+    let history = CompletionHistory(records: [record])
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.dateFormat = "yyyy-MM-dd"
+
+    let message = ClassicGameWindowController.recordsMessage(
+        bestTimes: bestTimes,
+        history: history,
+        dateFormatter: formatter
+    )
+    #expect(message.contains("Best Times\nBeginner: 12s — Tester"))
+    #expect(message.contains("Recent Wins\n1970-01-01 · 12×12/20 · 34s · Tester"))
 }
 
 @Test @MainActor func newGamesInheritTheMarksPreference() throws {

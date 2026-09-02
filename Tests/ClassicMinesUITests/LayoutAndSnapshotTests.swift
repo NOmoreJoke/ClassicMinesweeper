@@ -190,6 +190,34 @@ private func expectExactTwoTimesScale(_ one: NSBitmapImageRep, _ two: NSBitmapIm
     #expect(wonCells.allSatisfy { $0.accessibilityCustomActions()?.isEmpty == true })
 }
 
+@Test @MainActor func initialResponderHasNoFocusPixelsUntilKeyboardNavigation() throws {
+    let game = MinesweeperGame(configuration: GamePreset.beginner.configuration, seed: 7)
+    let baselineView = ClassicBoardView(game: game, scale: 2)
+    baselineView.frame = NSRect(origin: .zero, size: baselineView.intrinsicContentSize)
+    let baseline = try render(baselineView)
+
+    let focusedView = ClassicBoardView(game: game, scale: 2)
+    focusedView.frame = NSRect(origin: .zero, size: focusedView.intrinsicContentSize)
+    _ = focusedView.becomeFirstResponder()
+    let initialResponder = try render(focusedView)
+    #expect(pixels(initialResponder) == pixels(baseline))
+
+    let right = try #require(NSEvent.keyEvent(
+        with: .keyDown,
+        location: .zero,
+        modifierFlags: [],
+        timestamp: 0,
+        windowNumber: 0,
+        context: nil,
+        characters: "",
+        charactersIgnoringModifiers: "",
+        isARepeat: false,
+        keyCode: 124
+    ))
+    focusedView.keyDown(with: right)
+    #expect(pixels(try render(focusedView)) != pixels(baseline))
+}
+
 @Test @MainActor func hudStatesHaveFrozenPixelsAndExactTwoTimesScaling() throws {
     let states: [(String, GameStatus, Int, Int)] = [
         ("ready", .ready, 10, 0),

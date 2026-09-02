@@ -156,7 +156,7 @@
 ## 8. 数据与安装
 
 - Bundle ID：`com.local.classicmines`
-- UserDefaults：偏好、三条成绩。
+- UserDefaults：偏好、三条最好成绩、最多100条本地通关历史（日期、盘面、用时、玩家）。
 - 关闭窗口结束本局；重新打开生成新局。
 - DMG包含 `.app`、Applications快捷方式、最终DMG的独立 `.sha256`。
 - 本机构建且无 quarantine；执行 `codesign --verify --deep --strict`。

@@ -160,27 +160,70 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
 
     @objc public func showBestTimes(_ sender: Any?) {
         guard !modalInputBlocked else { return }
-        let lines = GamePreset.allCases.map { preset -> String in
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 520, height: 320))
+        textView.string = Self.recordsMessage(
+            bestTimes: preferences.bestTimes,
+            history: preferences.completionHistory
+        )
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.drawsBackground = false
+        textView.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        textView.textContainerInset = NSSize(width: 8, height: 8)
+        let scrollView = NSScrollView(frame: textView.frame)
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = true
+        scrollView.borderType = .bezelBorder
+
+        let alert = NSAlert()
+        alert.messageText = "Records"
+        alert.informativeText = "Best times and local completion history"
+        alert.accessoryView = scrollView
+        alert.addButton(withTitle: "OK")
+        presentSheet(alert)
+    }
+
+    static func recordsMessage(
+        bestTimes: BestTimes,
+        history: CompletionHistory,
+        dateFormatter: DateFormatter? = nil
+    ) -> String {
+        let bestLines = GamePreset.allCases.map { preset -> String in
             let title = preset.rawValue.capitalized
-            if let record = preferences.bestTimes.records[preset] {
+            if let record = bestTimes.records[preset] {
                 return "\(title): \(record.seconds)s — \(record.name)"
             }
             return "\(title): —"
         }
-        showSheet(title: "Best Times", message: lines.joined(separator: "\n"))
+        let formatter = dateFormatter ?? {
+            let value = DateFormatter()
+            value.dateStyle = .short
+            value.timeStyle = .short
+            return value
+        }()
+        let recentLines = history.records.map { record in
+            let board = record.configuration.preset?.rawValue.capitalized
+                ?? "\(record.configuration.dimensions.columns)×\(record.configuration.dimensions.rows)/\(record.configuration.mineCount)"
+            return "\(formatter.string(from: record.completedAt)) · \(board) · \(record.seconds)s · \(record.name)"
+        }
+        return (["Best Times"] + bestLines + ["", "Recent Wins"]
+            + (recentLines.isEmpty ? ["—"] : recentLines))
+            .joined(separator: "\n")
     }
 
     @objc public func resetRecords(_ sender: Any?) {
         guard !modalInputBlocked else { return }
         let alert = NSAlert()
         alert.messageText = "Reset Best Times?"
-        alert.informativeText = "This removes all three local records."
+        alert.informativeText = "This removes all best times and local completion history."
         alert.addButton(withTitle: "Reset")
         alert.addButton(withTitle: "Cancel")
         presentSheet(alert) { [weak self] response in
             guard response == .alertFirstButtonReturn else { return }
             self?.preferences.bestTimes.reset()
+            self?.preferences.completionHistory.reset()
             self?.preferences.saveBestTimes()
+            self?.preferences.saveCompletionHistory()
         }
     }
 
@@ -300,6 +343,11 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
             refreshTimer = nil
             switch game.status {
             case .won:
+                preferences.addCompletion(
+                    configuration: game.configuration,
+                    seconds: game.elapsedSeconds(),
+                    name: preferences.playerName
+                )
                 if let result = game.completedGame(),
                    preferences.bestTimes.submit(result, name: preferences.playerName) {
                     preferences.saveBestTimes()

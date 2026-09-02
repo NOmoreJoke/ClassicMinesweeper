@@ -65,6 +65,13 @@ public final class ClassicBoardView: NSView {
         }
     }
 
+    public private(set) var focusIndicatorVisible = false {
+        didSet {
+            guard oldValue != focusIndicatorVisible, let focusedCoordinate else { return }
+            invalidate([focusedCoordinate])
+        }
+    }
+
     private var leftDown = false
     private var rightDown = false
     private var gestureOrigin: Coordinate?
@@ -117,6 +124,7 @@ public final class ClassicBoardView: NSView {
 
     public override func mouseDown(with event: NSEvent) {
         guard inputEnabled else { return }
+        hideFocusIndicator()
         let state = signposter.beginInterval("PrimaryPress")
         defer { signposter.endInterval("PrimaryPress", state) }
         guard let coordinate = coordinate(for: event) else { return }
@@ -125,6 +133,7 @@ public final class ClassicBoardView: NSView {
 
     public override func rightMouseDown(with event: NSEvent) {
         guard inputEnabled else { return }
+        hideFocusIndicator()
         let state = signposter.beginInterval("SecondaryPress")
         defer { signposter.endInterval("SecondaryPress", state) }
         guard let coordinate = coordinate(for: event) else { return }
@@ -168,18 +177,25 @@ public final class ClassicBoardView: NSView {
         let dimensions = game.configuration.dimensions
         switch event.keyCode {
         case 123:
+            showFocusIndicator()
             moveFocus(to: Coordinate(row: focused.row, column: max(0, focused.column - 1)))
         case 124:
+            showFocusIndicator()
             moveFocus(to: Coordinate(row: focused.row, column: min(dimensions.columns - 1, focused.column + 1)))
         case 125:
+            showFocusIndicator()
             moveFocus(to: Coordinate(row: min(dimensions.rows - 1, focused.row + 1), column: focused.column))
         case 126:
+            showFocusIndicator()
             moveFocus(to: Coordinate(row: max(0, focused.row - 1), column: focused.column))
         case 49 where !event.isARepeat:
+            showFocusIndicator()
             interactionDelegate?.boardView(self, reveal: focused)
         case 3 where !event.isARepeat:
+            showFocusIndicator()
             interactionDelegate?.boardView(self, toggleMark: focused)
         case 36 where !event.isARepeat, 76 where !event.isARepeat:
+            showFocusIndicator()
             interactionDelegate?.boardView(self, chord: focused)
         default:
             super.keyDown(with: event)
@@ -188,6 +204,7 @@ public final class ClassicBoardView: NSView {
 
     func handlePress(_ button: PointerButton, at coordinate: Coordinate) {
         guard inputEnabled, !game.status.isTerminal else { return }
+        hideFocusIndicator()
         if gestureOrigin == nil {
             gestureOrigin = coordinate
         }
@@ -299,6 +316,7 @@ public final class ClassicBoardView: NSView {
               !game[coordinate].isRevealed,
               game[coordinate].mark != .flag,
               !game.status.isTerminal else { return false }
+        showFocusIndicator()
         focusedCoordinate = coordinate
         interactionDelegate?.boardView(self, reveal: coordinate)
         return true
@@ -309,6 +327,7 @@ public final class ClassicBoardView: NSView {
               game.configuration.dimensions.contains(coordinate),
               !game[coordinate].isRevealed,
               !game.status.isTerminal else { return false }
+        showFocusIndicator()
         focusedCoordinate = coordinate
         interactionDelegate?.boardView(self, toggleMark: coordinate)
         return true
@@ -319,6 +338,7 @@ public final class ClassicBoardView: NSView {
               game.configuration.dimensions.contains(coordinate),
               isChordOrigin(coordinate),
               !game.status.isTerminal else { return false }
+        showFocusIndicator()
         focusedCoordinate = coordinate
         interactionDelegate?.boardView(self, chord: coordinate)
         return true
@@ -334,6 +354,14 @@ public final class ClassicBoardView: NSView {
 
     private func moveFocus(to coordinate: Coordinate) {
         focusedCoordinate = coordinate
+    }
+
+    private func showFocusIndicator() {
+        focusIndicatorVisible = true
+    }
+
+    private func hideFocusIndicator() {
+        focusIndicatorVisible = false
     }
 
     private func updatePreview(pointer coordinate: Coordinate?) {
@@ -499,6 +527,7 @@ public final class ClassicBoardView: NSView {
     @objc func accessibilityFocusCell(_ request: AccessibilityRequest) {
         let coordinate = request.coordinate
         if game.configuration.dimensions.contains(coordinate) {
+            showFocusIndicator()
             focusedCoordinate = coordinate
             request.complete(true)
         } else {
@@ -665,7 +694,7 @@ public final class ClassicBoardView: NSView {
             }
         }
 
-        if focusedCoordinate == coordinate {
+        if focusIndicatorVisible && focusedCoordinate == coordinate {
             let focusRect = rect.insetBy(dx: CGFloat(3 * pixelScale), dy: CGFloat(3 * pixelScale))
             context.setStrokeColor(NSColor.keyboardFocusIndicatorColor.cgColor)
             context.setLineWidth(CGFloat(pixelScale))

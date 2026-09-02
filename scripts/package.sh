@@ -4,7 +4,7 @@ set -euo pipefail
 project_dir="${0:A:h:h}"
 dist_dir="$project_dir/dist"
 app_path="$dist_dir/Classic Mines.app"
-dmg_path="$dist_dir/Classic-Mines-1.0.0-arm64.dmg"
+dmg_path="$dist_dir/Classic-Mines-1.1.0-arm64.dmg"
 icon_work="$(mktemp -d)"
 stage_dir="$(mktemp -d)"
 trap 'rm -rf "$icon_work" "$stage_dir"' EXIT
