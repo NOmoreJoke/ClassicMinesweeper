@@ -160,27 +160,49 @@ public final class ClassicGameWindowController: NSWindowController, NSMenuItemVa
 
     @objc public func showBestTimes(_ sender: Any?) {
         guard !modalInputBlocked else { return }
-        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 520, height: 320))
-        textView.string = Self.recordsMessage(
+        let message = Self.recordsMessage(
             bestTimes: preferences.bestTimes,
             history: preferences.completionHistory
         )
+        let alert = NSAlert()
+        alert.messageText = "Records"
+        alert.informativeText = "Best times and local completion history"
+        alert.accessoryView = Self.recordsScrollView(message: message)
+        alert.addButton(withTitle: "OK")
+        presentSheet(alert)
+    }
+
+    static func recordsScrollView(message: String) -> NSScrollView {
+        let viewportSize = NSSize(width: 520, height: 320)
+        let textView = NSTextView(frame: NSRect(origin: .zero, size: viewportSize))
         textView.isEditable = false
         textView.isSelectable = true
         textView.drawsBackground = false
         textView.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         textView.textContainerInset = NSSize(width: 8, height: 8)
-        let scrollView = NSScrollView(frame: textView.frame)
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(
+            width: viewportSize.width,
+            height: .greatestFiniteMagnitude
+        )
+        textView.string = message
+        if let layoutManager = textView.layoutManager,
+           let textContainer = textView.textContainer {
+            layoutManager.ensureLayout(for: textContainer)
+            let contentHeight = ceil(layoutManager.usedRect(for: textContainer).height)
+                + textView.textContainerInset.height * 2
+            textView.frame.size.height = max(viewportSize.height, contentHeight)
+        }
+
+        let scrollView = NSScrollView(frame: NSRect(origin: .zero, size: viewportSize))
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
         scrollView.borderType = .bezelBorder
-
-        let alert = NSAlert()
-        alert.messageText = "Records"
-        alert.informativeText = "Best times and local completion history"
-        alert.accessoryView = scrollView
-        alert.addButton(withTitle: "OK")
-        presentSheet(alert)
+        return scrollView
     }
 
     static func recordsMessage(

@@ -475,6 +475,30 @@ func accessibilityCells(in board: ClassicBoardView) -> [BoardAccessibilityCell] 
     #expect(message.contains("Recent Wins\n1970-01-01 · 12×12/20 · 34s · Tester"))
 }
 
+@Test @MainActor func oneHundredRecordsUseAFixedScrollableViewport() throws {
+    let records = try (0..<100).map { index in
+        try CompletionHistoryRecord(
+            completedAt: Date(timeIntervalSince1970: TimeInterval(index)),
+            configuration: GamePreset.expert.configuration,
+            seconds: index,
+            name: "Tester"
+        )
+    }
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd"
+    let message = ClassicGameWindowController.recordsMessage(
+        bestTimes: BestTimes(),
+        history: CompletionHistory(records: records),
+        dateFormatter: formatter
+    )
+    let scrollView = ClassicGameWindowController.recordsScrollView(message: message)
+    let documentView = try #require(scrollView.documentView)
+
+    #expect(scrollView.frame.size == NSSize(width: 520, height: 320))
+    #expect(documentView.frame.height > scrollView.contentSize.height)
+    #expect(scrollView.hasVerticalScroller)
+}
+
 @Test @MainActor func newGamesInheritTheMarksPreference() throws {
     let game = try ClassicGameWindowController.makeGame(
         configuration: GamePreset.expert.configuration,
